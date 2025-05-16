@@ -122,5 +122,4 @@ def get_products():
 | 回傳過多欄位    | 資料表欄位全送              | 使用 DTO/Schema 過濾必要欄位 |
 
 ---
-
-✅ 下一章將進入補充與總結：我們會整理出所有儲存方式（cookie、localStorage、JWT）的生命週期與風險比較，也會講到 token 為什麼要過期、API token 不該留在前端、F12/console 到底能看到多少資料。
+ 

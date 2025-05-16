@@ -1,164 +1,119 @@
-好的，我明白了！我們來調整一下風格，讓文章更像一場精彩的攻防演練，程式碼範例也會更精簡，直指核心。
-
------
 
 
-### 2️⃣ 商品後台的保衛戰：攻破你的 CRUD
+#### 回合五：前端洩漏的第三方 API 金鑰
 
-**本章你將學會：**
-
-  * 為何前端驗證不可靠，以及後端驗證的重要性。
-  * 隱藏功能按鈕為何擋不住駭客。
-  * 商品說明中的 XSS 攻擊與防禦。
-  * 圖片上傳的常見漏洞與安全措施。
-  * 為何第三方 API 金鑰絕不能放在前端。
-
------
-
-#### 回合一：形同虛設的前端驗證
-
-你在前端寫了完美的商品價格驗證：
+你使用了 Google Maps API 來顯示地圖，並把 API Key 直接寫在前端 JavaScript：
 
 ```javascript
-// 前端 product_form.js (壞範例 - 僅前端驗證)
-function createProduct() {
-    const price = parseFloat(document.getElementById('productPrice').value);
-    if (isNaN(price) || price <= 0) {
-        alert('價格必須是正數！'); // ❌ 僅前端驗證
-        return;
-    }
-    // fetch('/api/products', { method: 'POST', body: JSON.stringify({price: price, ...}) ... });
-    console.log("前端驗證通過，價格:", price);
-}
+// 前端 map.js (極度危險！)
+// const Maps_API_KEY = "AIzaSyYOUR_VERY_REAL_API_KEY_HERE"; // ❌❌❌
+// const script = document.createElement('script');
+// script.src = `https://maps.googleapis.com/maps/api/js?key=${Maps_API_KEY}&callback=initMap`;
+// document.head.appendChild(script);
 ```
 
-**駭客攻擊：F12 Console / Postman 輕鬆繞過**
+**駭客攻擊：F12 Sources 一秒偷走你的金鑰**
 
-駭客根本不鳥你的 UI，直接打開 F12 Console：
+駭客打開 F12 -\> Sources (原始碼)，找到你的 JS 檔案，API Key 就暴露了。他們可以用你的 Key 瘋狂呼叫 Google Maps API (或其他任何你洩漏的第三方服務金鑰，如 AWS、OpenAI)，導致你的帳單暴增破產。
 
-```javascript
-// 駭客在 Console 中執行
-fetch('/api/products', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', /* 'Authorization': 'Bearer ...' */ },
-    body: JSON.stringify({ productName: '惡意商品', productPrice: -999 }) // 😈 負數價格
-})
-.then(res => res.json()).then(console.log);
-```
+**你的防守：金鑰永不露面，後端代理請求**
 
-如果後端沒有驗證，一個價格為負的商品就成功建立了！
-
-**你的防守：後端才是真正的守門員**
-
-**黃金法則：永遠不要相信任何來自客戶端的數據！**
-
-```python
-# 後端 main.py (商品API - 加入後端驗證)
-from pydantic import BaseModel, Field
-
-class ProductCreate(BaseModel):
-    productName: str = Field(..., min_length=1)
-    productPrice: float = Field(..., gt=0) # ✅ 價格必須大於 0
-    # ... 其他欄位與驗證規則
-
-@app.post("/api/products")
-async def create_new_product(product: ProductCreate, current_user: dict = Depends(get_current_user_from_token)):
-    # current_user 可用於記錄操作者或進一步權限檢查
-    print(f"User {current_user['username']} is creating product: {product.productName}")
-    # 實際儲存到資料庫...
-    # product_db.save(product, user_id=current_user['user_id'])
-    return {"message": "商品建立成功", "product_data": product.model_dump()}
-```
-
-FastAPI 結合 Pydantic 模型可以輕鬆實現強大的後端資料驗證。
-
------
-
-#### 回合二：隱藏也沒用的管理員按鈕
-
-你把「刪除所有商品」的按鈕用 CSS `display: none;` 藏起來，只給管理員看。
-
-```html
-<script> /* if (isAdmin) document.getElementById('deleteAllBtn').style.display = 'block'; */ </script>
-```
-
-**駭客攻擊：F12 一秒現形，直接呼叫 API**
-
-1.  **改 DOM**：駭客在 F12 Elements 面板移除 `style="display: none;"`。
-2.  **讀 JS**：找到 `deleteAll()` 函數或對應的 API 端點 `/api/admin/delete-everything`。
-3.  **直接執行**：在 Console 執行 `deleteAll()` 或 `Workspace('/api/admin/delete-everything', {method: 'POST'})`。
-
-**你的防守：後端權限檢查 (Authorization)**
-
-UI 隱藏只是障眼法，真正的安全來自後端對每個操作的權限驗證。
-
-```python
-# 後端 main.py (加入權限檢查裝飾器/依賴)
-async def get_admin_user(current_user: dict = Depends(get_current_user_from_token)):
-    # 假設 token payload 中有 roles 資訊，或從資料庫查詢用戶角色
-    # if "admin" not in get_user_roles(current_user['user_id']):
-    if current_user['username'] != "admin": # 簡化：假設只有名為 admin 的用戶是管理員
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="沒有權限執行此操作")
-    return current_user
-
-@app.post("/api/admin/delete-everything")
-async def delete_everything(admin_user: dict = Depends(get_admin_user)): # ✅ 依賴注入，自動做權限檢查
-    print(f"ADMIN User {admin_user['username']} is DELETING ALL PRODUCTS!")
-    # EXTREMELY_DANGEROUS_OPERATION_HERE()
-    return {"message": "所有商品已刪除 (模擬操作)"}
-```
-
------
-
-#### 回合三：商品說明裡的 XSS 陷阱
-
-你的商品說明欄位允許用戶輸入豐富的 HTML。
-
-**駭客攻擊：注入 `<script>` 導致 Stored XSS**
-
-駭客在商品說明中填入：
-`這是一件很棒的商品！<script>alert('XSS from product! Your session might be hijacked!')</script>`
-當其他用戶瀏覽此商品時，惡意腳本就會在他們的瀏覽器執行。
-
-**你的防守：輸入清理與輸出編碼**
-
-1.  **輸入清理 (Input Sanitization)**：後端儲存前，移除或轉義惡意 HTML 標籤和屬性。使用如 `bleach` 函式庫。
-2.  **輸出編碼 (Output Encoding)**：顯示內容時，對 HTML 特殊字元進行編碼。現代模板引擎 (如 Jinja2) 預設會做。
+  * **金鑰存後端**：將 API Key 儲存在後端伺服器的環境變數中，絕不寫入程式碼，更不能傳到前端。
+  * **後端代理**：前端請求你自己的後端 API，你的後端再拿著金鑰安全地去請求第三方服務，然後將結果回傳給前端。
 
 <!-- end list -->
 
 ```python
-# 後端 main.py (使用 Jinja2 模板輸出，預設防 XSS)
-from fastapi.templating import Jinja2Templates
-from fastapi.requests import Request
+# 後端 main.py (代理請求概念)
+import httpx # pip install httpx, 現代化的 HTTP 客戶端
+import os
 
-templates = Jinja2Templates(directory="templates") # 需要建立 templates 資料夾
+# 從環境變數讀取，例如: export THIRD_PARTY_API_KEY="your_actual_key"
+THIRD_PARTY_API_KEY = os.environ.get("THIRD_PARTY_API_KEY_EXAMPLE") 
 
-# 假設商品資料庫
-mock_products = {
-    "1": {"name": "安全商品", "description": "<strong>無害的描述</strong>"},
-    "2": {"name": "XSS商品", "description": "危險! <script>alert('XSS!')</script>"}
-}
+@app.get("/api/proxy/some-service")
+async def proxy_some_service(query: str, current_user: dict = Depends(get_current_user_from_token)):
+    if not THIRD_PARTY_API_KEY:
+        raise HTTPException(status_code=503, detail="服務暫時不可用 (金鑰未配置)")
 
-@app.get("/products/{product_id}", response_class=HTMLResponse) # FastAPI HTMLResponse
-async def read_product(request: Request, product_id: str):
-    product = mock_products.get(product_id)
-    if not product:
-        raise HTTPException(status_code=404, detail="商品不存在")
-    # Jinja2 預設會對 description 進行 HTML 逸脫
-    return templates.TemplateResponse("product_detail.html", {"request": request, "product": product})
+    # 這裡可以加入你自己的快取、速率限制、日誌等邏輯
+    # current_user 可用於判斷此用戶是否有權限使用此代理服務
+    
+    external_service_url = f"https://api.example.com/data?query={query}&apiKey={THIRD_PARTY_API_KEY}"
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(external_service_url)
+            response.raise_for_status() # 如果是 4xx 或 5xx 會拋出異常
+            # 你可能只想回傳部分數據，或對數據進行處理
+            return response.json() 
+        except httpx.HTTPStatusError as e:
+            # 不要直接回傳第三方錯誤的詳細內容，避免洩漏過多資訊
+            error_detail = f"外部服務錯誤: {e.response.status_code}"
+            if e.response.status_code == 401 or e.response.status_code == 403:
+                 error_detail = "外部服務認證失敗 (可能是伺服器金鑰問題)"
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=error_detail)
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"代理請求時發生未知錯誤: {str(e)}")
+
+# 前端 JS 呼叫你的代理 API
+# fetch("/api/proxy/some-service?query=something")
+#   .then(res => res.json())
+#   .then(data => console.log(data));
 ```
 
-````html
-<h1>{{ product.name }}</h1>
-<p>商品說明：{{ product.description }}</p> ```
-如果需要在後端儲存前就清理，可以使用 `bleach`：
-```python
-# import bleach
-# cleaned_description = bleach.clean(user_input_description, tags=['p', 'strong'], strip=True)
-# db.save(cleaned_description)
-````
+這樣，第三方 API Key 永遠不會離開你的伺服器。
 
 -----
 
-*(後續章節將繼續採用此精簡攻防風格編寫)*
+### 3️⃣ 資料查詢的隱私攻防：你的 API 在洩密嗎？
+ 
+-----
+
+#### 小結：哪些資料算機敏？
+
+  * **個人身份識別資訊 (PII)**：完整姓名、身分證號、完整地址、電話、Email (除非刻意公開)、生日。
+  * **帳戶/系統資訊**：**密碼/密碼雜湊 (絕對禁止)**、API 金鑰、內部 ID (除非刻意設計為公開 ID)、詳細錯誤訊息。
+  * **業務/營運資訊**：未公開的財務數據、客戶名單等。
+
+**原則：預設不給，按需提供。不確定的，就當作機敏處理。**
+
+-----
+
+### 📎 補充篇 (精簡概念)
+
+#### JWT (JSON Web Token)
+
+一種開放標準 (RFC 7519)，用於安全地在雙方之間傳輸資訊的 Token。
+
+  * **過期 (`exp`)**：Token 有效期限，過期後失效。
+  * **撤銷 (Revocation)**：讓未過期的 Token 失效 (如登出、改密碼)。通常用黑名單機制 (如 Redis 存 JTI)。
+  * **刷新 (Refresh Token)**：用一個長效期的 Refresh Token 去換取短效期的 Access Token，兼顧安全與體驗。
+
+#### F12 / 開發者工具
+
+駭客的第一個情報站。他們能：
+
+  * 看 HTML/CSS/JS 原始碼。
+  * 分析網路請求 (API 端點、參數、回應)。
+  * 執行任意 JavaScript (偷 localStorage、繞過前端驗證)。
+  * 修改 DOM 結構 (顯示隱藏元素)。
+  * 查看 Cookie、localStorage 等儲存。
+
+#### 圖床安全進階
+
+  * **URL 簽名 (Signed URLs)**：產生帶有簽名和過期時間的圖片 URL，常用於 CDN (如 AWS S3 Presigned URL)。防止盜連和永久連結。
+  * **後端 Relay/Proxy**：圖片不直接暴露 URL，而是透過後端 API 進行權限驗證後再串流給前端。完全掌控存取，但增加伺服器負載。
+
+-----
+
+### 🛡️ 總結：安全無小事，攻防永不息
+
+看完這些攻防演練，你應該體會到，網站安全並非一勞永逸，而是一場持續的攻防戰。駭客總在尋找新的突破口，而開發者則需要不斷學習、保持警惕，從每個功能設計之初就融入安全思維。
+
+記住：
+
+  * **永遠不要相信用戶輸入。**
+  * **後端是最後的防線。** 
+
+希望這篇文章能幫助你打造更安全的網路世界！
