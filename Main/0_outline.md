@@ -11,17 +11,9 @@
 
 * 專案目標與核心功能介紹
 * 專案選型與技術棧
-  * 前端部署：Vercel
-  * 後端部署：Render
-  * 資料庫：ClawCloud
-  * 圖床服務：Cloudflare R2
 * 系統架構圖
-
-  * 各模組如何串聯、溝通
-  * 為什麼不選 serverless 或一體化平台？
-* 備選方案比較與淘汰原因（Firebase、Supabase、VPS、Kubernetes 等）
+* 備選方案比較與淘汰原因（upabase、VPS、Kubernetes 等）
 * 資料流節點概觀（CH2 詳述）
-
   * router / service / schema / dao 的責任分工邏輯
 
 ## 1.2 系統架構與模組分工
